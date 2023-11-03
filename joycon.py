@@ -7,27 +7,33 @@ from morse import decode
 import time
 from collections import OrderedDict
 
+class AsyncButtonEvent(ButtonEventJoyCon):
+    """I don't like how to library handle events.
+    need to use busy waiting to poll for events.
+    it's draining battery life."""
+
+    def joycon_button_event(self, button, state):
+        asyncio.run_coroutine_threadsafe(
+            queue.put((button, state)),
+            loop
+        )
+
 try:
-    joycon_L, joycon_R = ButtonEventJoyCon(*get_L_id()), ButtonEventJoyCon(*get_R_id())
+    joycon_L, joycon_R = AsyncButtonEvent(*get_L_id()), AsyncButtonEvent(*get_R_id())
 except ValueError:
     print('check joycon connected? exit.')
     exit(1)
 
-sigint_event = threading.Event()    # https://stackoverflow.com/a/71420261
+sigint_event = threading.Event()    # https://stackoverflow.com/a/71420261  # no use anymore.
 loop = asyncio.get_event_loop()
 queue = asyncio.Queue()
 q2 = asyncio.Queue()
-
-def joycon_listener():
-    while not sigint_event.is_set():
-        for event_type, status in chain(joycon_L.events(), joycon_R.events()):
-            asyncio.run_coroutine_threadsafe(queue.put((event_type, status)), loop)     # https://stackoverflow.com/a/43275001
 
 async def main_loop():
     buf = {'v': OrderedDict(), '^': OrderedDict()}
     A = 20000000  # in nano seconds
     B = 0.8     # overlap percentage
-    while not sigint_event.is_set():
+    while True:
         key, direction = await queue.get()
         if direction == 1:
             buf['v'][key] = time.perf_counter_ns()
@@ -81,7 +87,7 @@ async def main_loop():
 async def pain_loop():
     keyboard = Controller()
     buf = ''
-    while not sigint_event.is_set():
+    while True:
         keys = await q2.get()
         # print(keys)
         if keys in [{'l'}, {'r'}]:
@@ -106,7 +112,6 @@ async def pain_loop():
 
 async def main():
     await asyncio.gather(
-        asyncio.to_thread(joycon_listener),
         main_loop(),
         pain_loop(),
     )
