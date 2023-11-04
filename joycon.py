@@ -14,12 +14,13 @@ class AsyncButtonEvent(ButtonEventJoyCon):
 
     def joycon_button_event(self, button, state):
         asyncio.run_coroutine_threadsafe(
-            queue.put((button, state)),
+            queue.put((button, state, time.perf_counter_ns())),
             loop
         )
 
 try:
-    joycon_L, joycon_R = AsyncButtonEvent(*get_L_id()), AsyncButtonEvent(*get_R_id())
+    joycon_L = AsyncButtonEvent(*get_L_id())
+    joycon_R = AsyncButtonEvent(*get_R_id())
 except ValueError:
     print('check joycon connected? exit.')
     exit(1)
@@ -31,15 +32,15 @@ q2 = asyncio.Queue()
 
 async def main_loop():
     buf = {'v': OrderedDict(), '^': OrderedDict()}
-    A = 20000000  # in nano seconds
+    A = 40000000  # in nano seconds
     B = 0.8     # overlap percentage
     while True:
-        key, direction = await queue.get()
+        key, direction, when = await queue.get()
         if direction == 1:
-            buf['v'][key] = time.perf_counter_ns()
+            buf['v'][key] = when
             continue
         elif direction == 0:
-            buf['^'][key] = {'vt': buf['v'][key], '^t': time.perf_counter_ns()}
+            buf['^'][key] = {'vt': buf['v'][key], '^t': when}
             del buf['v'][key]
         else:
             raise ValueError(f'unexpected direction: {direction}')
@@ -63,19 +64,21 @@ async def main_loop():
                 d2 = tt2['^t'] - tt2['vt']
                 return min(d1,d2) / max(d1,d2) >= B
             if abs(tt1['vt'] - tt2['vt']) > A:    # greater than threashold.  consider them not combo.
-                # print('A', tt1['vt'] - tt2['vt'])
+                print('>A', tt1['vt'] - tt2['vt'])
                 q2.put_nowait({k1})
                 del buf['^'][k1]
                 q2.put_nowait({k2})
                 del buf['^'][k2]
                 continue
             elif not is_overlap(tt1, tt2):
+                print('<B not overlap')
                 q2.put_nowait({k1})
                 del buf['^'][k1]
                 q2.put_nowait({k2})
                 del buf['^'][k2]
                 continue
             else:   # is overlap
+                print('>B overlap')
                 q2.put_nowait({k1,k2})
                 del buf['^'][k1]
                 del buf['^'][k2]
@@ -85,6 +88,9 @@ async def main_loop():
         buf = ''
 
 async def pain_loop():
+    """it first called pain_loop just because it rhymes with main_loop.
+    but then I realize the real pain is in detecting simultaneous key down,
+    which is in the main loop."""
     keyboard = Controller()
     buf = ''
     while True:
