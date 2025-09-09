@@ -116,10 +116,27 @@ async def pain_loop():
             keyboard.release(Key.backspace)
             buf = ''
 
+async def new_loop():
+    keysss = dict()
+    while True:
+        key, pressed, when = await queue.get()
+        # print(key, pressed, when)
+        if pressed == 1:
+            keysss[key] = when
+        if pressed == 0:
+            keysss[key] = None
+        # print(keysss)
+        if all(v is None for v in keysss.values()):
+            combo = set(keysss.keys())
+            char = decode(combo)
+            print('char:', char)
+            keysss = dict()
+
 async def main():
     await asyncio.gather(
-        main_loop(),
-        pain_loop(),
+        # main_loop(),
+        # pain_loop(),
+        new_loop(),
     )
 
 async def cleanup():
